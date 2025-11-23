@@ -15,55 +15,16 @@ variable "aws_region" {
   default = "us-east-1"
 }
 
-# VPC and Networking
-resource "aws_vpc" "main" {
-  cidr_block           = "10.1.0.0/16"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-  
-  tags = {
-    Name = "dynamodb-vpc-mcp-python"
-  }
+# Use default VPC and subnets
+data "aws_vpc" "default" {
+  default = true
 }
 
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-  
-  tags = {
-    Name = "dynamodb-igw-mcp-python"
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
   }
-}
-
-resource "aws_subnet" "public" {
-  count             = 2
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.1.${count.index + 1}.0/24"
-  availability_zone = data.aws_availability_zones.available.names[count.index]
-  
-  map_public_ip_on_launch = true
-  
-  tags = {
-    Name = "dynamodb-subnet-mcp-python-${count.index + 1}"
-  }
-}
-
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-  
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-  
-  tags = {
-    Name = "dynamodb-rt-mcp-python"
-  }
-}
-
-resource "aws_route_table_association" "public" {
-  count          = 2
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
 }
 
 data "aws_availability_zones" "available" {
@@ -152,7 +113,7 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
 # Security Group for ECS tasks
 resource "aws_security_group" "ecs_tasks" {
   name_prefix = "dynamodb-sg-mcp-python-"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.default.id
 
   ingress {
     protocol    = "tcp"
@@ -219,7 +180,7 @@ resource "aws_ecs_service" "dynamodb_mcp" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = aws_subnet.public[*].id
+    subnets          = data.aws_subnets.default.ids
     security_groups  = [aws_security_group.ecs_tasks.id]
     assign_public_ip = true
   }
@@ -243,7 +204,7 @@ output "task_role_arn" {
 }
 
 output "subnet_ids" {
-  value = aws_subnet.public[*].id
+  value = data.aws_subnets.default.ids
 }
 
 output "security_group_id" {
@@ -251,5 +212,5 @@ output "security_group_id" {
 }
 
 output "vpc_id" {
-  value = aws_vpc.main.id
+  value = data.aws_vpc.default.id
 }
