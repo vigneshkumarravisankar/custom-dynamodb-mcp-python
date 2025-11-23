@@ -4,9 +4,21 @@ from typing import Dict, Any, List, Optional
 import boto3
 from botocore.exceptions import ClientError
 from fastmcp import FastMCP
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 
 # Initialize MCP server
 mcp = FastMCP("DynamoDB MCP Server")
+
+# Define middleware
+middleware = [
+    Middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+]
 
 # Initialize DynamoDB client
 def get_dynamodb_client():
@@ -302,7 +314,127 @@ def create_lsi(tableName: str, indexName: str, partitionKey: str, partitionKeyTy
     except Exception as e:
         return {"error": str(e)}
 
-if __name__ == "__main__":
-    mcp.run(transport="http")
+# Web interface for browser access
+@mcp.custom_route("/", methods=["GET"])
+async def web_interface(request):
+    from starlette.responses import HTMLResponse
+    html_content = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DynamoDB MCP Server</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 800px; }
+        button { background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+        #output { background: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 5px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 DynamoDB MCP Server</h1>
+        <p>Your MCP server is running!</p>
+        
+        <h2>🔗 Endpoints</h2>
+        <ul>
+            <li><strong>MCP Protocol:</strong> POST /mcp</li>
+            <li><strong>Health Check:</strong> <a href="/health">GET /health</a></li>
+        </ul>
+        
+        <h2>🧪 Test Interface</h2>
+        <button onclick="testConnection()">Test Connection</button>
+        <button onclick="listTables()">List Tables</button>
+        <div id="output"></div>
+    </div>
     
-    # app = mcp.http_app()
+    <script>
+        let sessionId = null;
+        
+        async function mcpCall(method, params = {}) {
+            const headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+                'mcp-protocol-version': '2024-11-05'
+            };
+            
+            if (sessionId) {
+                headers['mcp-session-id'] = sessionId;
+            }
+            
+            const response = await fetch('/mcp', {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: method,
+                    params: params
+                })
+            });
+            
+            const newSessionId = response.headers.get('mcp-session-id');
+            if (newSessionId) {
+                sessionId = newSessionId;
+            }
+            
+            const contentType = response.headers.get('content-type');
+            if (contentType === 'text/event-stream') {
+                const text = await response.text();
+                const lines = text.split('\\n');
+                let data = '';
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        data += line.substring(6);
+                    }
+                }
+                return JSON.parse(data);
+            } else {
+                return await response.json();
+            }
+        }
+        
+        async function testConnection() {
+            document.getElementById('output').textContent = 'Testing connection...';
+            try {
+                const result = await mcpCall('initialize', {
+                    protocolVersion: '2024-11-05',
+                    capabilities: {},
+                    clientInfo: { name: 'web-client', version: '1.0.0' }
+                });
+                document.getElementById('output').textContent = 'Connection successful!\\nSession ID: ' + sessionId;
+            } catch (error) {
+                document.getElementById('output').textContent = 'Error: ' + error.message;
+            }
+        }
+        
+        async function listTables() {
+            if (!sessionId) await testConnection();
+            document.getElementById('output').textContent = 'Listing tables...';
+            try {
+                const result = await mcpCall('tools/call', {
+                    name: 'list_tables',
+                    arguments: {}
+                });
+                document.getElementById('output').textContent = JSON.stringify(result, null, 2);
+            } catch (error) {
+                document.getElementById('output').textContent = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>
+    """
+    return HTMLResponse(content=html_content)
+
+# Health check endpoint
+@mcp.custom_route("/health", methods=["GET"])
+async def health_check(request):
+    from starlette.responses import JSONResponse
+    return JSONResponse({"status": "healthy", "service": "dynamodb-mcp-server"})
+
+if __name__ == "__main__":
+    print("🚀 DynamoDB MCP Server starting...")
+    print("📍 Web Interface: http://localhost:8000")
+    print("📍 MCP Endpoint: http://localhost:8000/mcp")
+    print("🏥 Health Check: http://localhost:8000/health")
+    mcp.run(transport="http", host="0.0.0.0", port=8000)

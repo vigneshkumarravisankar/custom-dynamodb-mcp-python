@@ -1,0 +1,14 @@
+.git
+.github
+.gitignore
+README.md
+deploy-setup.md
+terraform/
+*.md
+__pycache__
+*.pyc
+.env
+.venv
+venv/
+.pytest_cache
+.coverage

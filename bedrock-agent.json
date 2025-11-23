@@ -1,0 +1,63 @@
+{
+  "agentName": "dynamodb-mcp-agent",
+  "description": "DynamoDB MCP Server Agent for natural language database operations",
+  "foundationModel": "anthropic.claude-3-sonnet-20240229-v1:0",
+  "instruction": "You are a DynamoDB operations assistant. Use the available MCP tools to help users manage their DynamoDB tables and data. You can list tables, create tables, query data, insert items, and perform other DynamoDB operations through natural language requests.",
+  "actionGroups": [
+    {
+      "actionGroupName": "dynamodb-operations",
+      "description": "DynamoDB table and data operations",
+      "actionGroupExecutor": {
+        "customControl": "RETURN_CONTROL"
+      },
+      "apiSchema": {
+        "payload": {
+          "openapi": "3.0.0",
+          "info": {
+            "title": "DynamoDB MCP API",
+            "version": "1.0.0"
+          },
+          "paths": {
+            "/mcp": {
+              "post": {
+                "summary": "Execute MCP tool",
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "tool_name": {
+                            "type": "string",
+                            "enum": [
+                              "list_tables",
+                              "describe_table", 
+                              "create_table",
+                              "put_item",
+                              "get_item",
+                              "query_table",
+                              "scan_table",
+                              "update_item"
+                            ]
+                          },
+                          "parameters": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "responses": {
+                  "200": {
+                    "description": "Success"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

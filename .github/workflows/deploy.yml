@@ -1,0 +1,84 @@
+name: Deploy DynamoDB MCP Server
+
+on:
+  push:
+    branches: [ main, master ]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: dynamodb-mcp-server
+
+jobs:
+  deploy:
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Create ECR repository if it doesn't exist
+      run: |
+        aws ecr describe-repositories --repository-names $ECR_REPOSITORY || \
+        aws ecr create-repository --repository-name $ECR_REPOSITORY
+
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_wrapper: false
+
+    - name: Deploy Infrastructure
+      working-directory: ./terraform
+      run: |
+        terraform init
+        terraform apply -auto-approve
+        
+        # Get outputs
+        echo "CLUSTER_NAME=$(terraform output -raw ecs_cluster_name)" >> $GITHUB_ENV
+        echo "EXECUTION_ROLE=$(terraform output -raw execution_role_arn)" >> $GITHUB_ENV
+        echo "TASK_ROLE=$(terraform output -raw task_role_arn)" >> $GITHUB_ENV
+        echo "SUBNET_IDS=$(terraform output -json subnet_ids | jq -r '.[] | @csv' | tr ',' ' ')" >> $GITHUB_ENV
+        echo "SECURITY_GROUP=$(terraform output -raw security_group_id)" >> $GITHUB_ENV
+
+    - name: Update ECS Service
+      run: |
+        # Update task definition with new image
+        aws ecs describe-task-definition --task-definition dynamodb-mcp-server --query taskDefinition > task-def.json
+        
+        # Update image in task definition
+        jq --arg IMAGE "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}" \
+           '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' \
+           task-def.json > new-task-def.json
+        
+        # Register new task definition
+        aws ecs register-task-definition --cli-input-json file://new-task-def.json
+        
+        # Update service
+        aws ecs update-service \
+          --cluster "$CLUSTER_NAME" \
+          --service "dynamodb-mcp-server" \
+          --task-definition "dynamodb-mcp-server" \
+          --force-new-deployment
