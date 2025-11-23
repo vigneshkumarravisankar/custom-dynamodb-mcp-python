@@ -2,7 +2,9 @@ name: Deploy DynamoDB MCP Server
 
 on:
   push:
-    branches: [ main, master ]
+    branches: 
+      - main
+      - master
 
 env:
   AWS_REGION: us-east-1
