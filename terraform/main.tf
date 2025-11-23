@@ -35,21 +35,52 @@ data "aws_availability_zones" "available" {
 resource "aws_ecr_repository" "dynamodb_mcp" {
   name                 = "dynamodb-ecr-mcp-python"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
   
   image_scanning_configuration {
     scan_on_push = true
   }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Import existing ECR repository if it exists
+import {
+  to = aws_ecr_repository.dynamodb_mcp
+  id = "dynamodb-ecr-mcp-python"
 }
 
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
   name = "dynamodb-cluster-mcp-python"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Import existing ECS cluster if it exists
+import {
+  to = aws_ecs_cluster.main
+  id = "dynamodb-cluster-mcp-python"
 }
 
 # CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "ecs_logs" {
   name              = "/ecs/dynamodb-logs-mcp-python"
   retention_in_days = 7
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Import existing log group if it exists
+import {
+  to = aws_cloudwatch_log_group.ecs_logs
+  id = "/ecs/dynamodb-logs-mcp-python"
 }
 
 # IAM Roles
@@ -68,6 +99,16 @@ resource "aws_iam_role" "ecs_execution_role" {
       }
     ]
   })
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Import existing execution role if it exists
+import {
+  to = aws_iam_role.ecs_execution_role
+  id = "dynamodb-execution-role-mcp-python"
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
@@ -90,6 +131,16 @@ resource "aws_iam_role" "ecs_task_role" {
       }
     ]
   })
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Import existing task role if it exists
+import {
+  to = aws_iam_role.ecs_task_role
+  id = "dynamodb-task-role-mcp-python"
 }
 
 resource "aws_iam_role_policy" "ecs_task_policy" {
@@ -112,7 +163,7 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
 
 # Security Group for ECS tasks
 resource "aws_security_group" "ecs_tasks" {
-  name_prefix = "dynamodb-sg-mcp-python-"
+  name        = "dynamodb-sg-mcp-python"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -128,6 +179,10 @@ resource "aws_security_group" "ecs_tasks" {
     to_port     = 0
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # ECS Task Definition
@@ -139,6 +194,10 @@ resource "aws_ecs_task_definition" "dynamodb_mcp" {
   memory                   = "512"
   execution_role_arn       = aws_iam_role.ecs_execution_role.arn
   task_role_arn           = aws_iam_role.ecs_task_role.arn
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   container_definitions = jsonencode([
     {
@@ -184,6 +243,15 @@ resource "aws_ecs_service" "dynamodb_mcp" {
     security_groups  = [aws_security_group.ecs_tasks.id]
     assign_public_ip = true
   }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  depends_on = [
+    aws_ecs_task_definition.dynamodb_mcp,
+    aws_security_group.ecs_tasks
+  ]
 }
 
 # Outputs
