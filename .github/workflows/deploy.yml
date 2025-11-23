@@ -23,6 +23,13 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
+        mask-aws-account-id: false
+
+    - name: Validate AWS credentials
+      run: |
+        echo "Testing AWS credentials..."
+        aws sts get-caller-identity
+        echo "AWS credentials are valid"
 
     - name: Login to Amazon ECR
       id: login-ecr
@@ -30,8 +37,13 @@ jobs:
 
     - name: Create ECR repository if it doesn't exist
       run: |
-        aws ecr describe-repositories --repository-names $ECR_REPOSITORY || \
-        aws ecr create-repository --repository-name $ECR_REPOSITORY
+        echo "Checking ECR repository: $ECR_REPOSITORY"
+        if ! aws ecr describe-repositories --repository-names $ECR_REPOSITORY 2>/dev/null; then
+          echo "Creating ECR repository: $ECR_REPOSITORY"
+          aws ecr create-repository --repository-name $ECR_REPOSITORY
+        else
+          echo "ECR repository already exists"
+        fi
 
     - name: Build, tag, and push image to Amazon ECR
       id: build-image
@@ -53,8 +65,17 @@ jobs:
     - name: Deploy Infrastructure
       working-directory: ./terraform
       run: |
+        echo "Initializing Terraform..."
         terraform init
+        
+        echo "Planning Terraform deployment..."
+        terraform plan
+        
+        echo "Applying Terraform configuration..."
         terraform apply -auto-approve
+        
+        echo "Getting Terraform outputs..."
+        terraform output
         
         # Get outputs
         echo "CLUSTER_NAME=$(terraform output -raw ecs_cluster_name)" >> $GITHUB_ENV
@@ -65,20 +86,27 @@ jobs:
 
     - name: Update ECS Service
       run: |
-        # Update task definition with new image
-        aws ecs describe-task-definition --task-definition dynamodb-mcp-server --query taskDefinition > task-def.json
-        
-        # Update image in task definition
-        jq --arg IMAGE "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}" \
-           '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' \
-           task-def.json > new-task-def.json
-        
-        # Register new task definition
-        aws ecs register-task-definition --cli-input-json file://new-task-def.json
-        
-        # Update service
-        aws ecs update-service \
-          --cluster "$CLUSTER_NAME" \
-          --service "dynamodb-mcp-server" \
-          --task-definition "dynamodb-mcp-server" \
-          --force-new-deployment
+        echo "Checking if ECS service exists..."
+        if aws ecs describe-services --cluster "$CLUSTER_NAME" --services "dynamodb-mcp-server" --query 'services[0].status' --output text 2>/dev/null | grep -q "ACTIVE"; then
+          echo "Service exists, updating..."
+          
+          # Get current task definition
+          aws ecs describe-task-definition --task-definition dynamodb-mcp-server --query taskDefinition > task-def.json
+          
+          # Update image in task definition
+          jq --arg IMAGE "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}" \
+             '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' \
+             task-def.json > new-task-def.json
+          
+          # Register new task definition
+          aws ecs register-task-definition --cli-input-json file://new-task-def.json
+          
+          # Update service
+          aws ecs update-service \
+            --cluster "$CLUSTER_NAME" \
+            --service "dynamodb-mcp-server" \
+            --task-definition "dynamodb-mcp-server" \
+            --force-new-deployment
+        else
+          echo "Service will be created by Terraform"
+        fi
