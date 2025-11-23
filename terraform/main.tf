@@ -72,7 +72,7 @@ data "aws_availability_zones" "available" {
 
 # ECR Repository
 resource "aws_ecr_repository" "dynamodb_mcp" {
-  name                 = "dynamodb-mcp-server"
+  name                 = "dynamodb-mcp-server-python"
   image_tag_mutability = "MUTABLE"
   
   image_scanning_configuration {
@@ -87,7 +87,7 @@ resource "aws_ecs_cluster" "main" {
 
 # CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "ecs_logs" {
-  name              = "/ecs/dynamodb-mcp-server"
+  name              = "/ecs/dynamodb-mcp-server-python"
   retention_in_days = 7
 }
 
@@ -115,7 +115,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
 }
 
 resource "aws_iam_role" "ecs_task_role" {
-  name = "ecs-task-role"
+  name = "ecs-task-role1"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -132,7 +132,7 @@ resource "aws_iam_role" "ecs_task_role" {
 }
 
 resource "aws_iam_role_policy" "ecs_task_policy" {
-  name = "ecs-task-policy"
+  name = "ecs-task-policy1"
   role = aws_iam_role.ecs_task_role.id
 
   policy = jsonencode({
@@ -171,7 +171,7 @@ resource "aws_security_group" "ecs_tasks" {
 
 # ECS Task Definition
 resource "aws_ecs_task_definition" "dynamodb_mcp" {
-  family                   = "dynamodb-mcp-server"
+  family                   = "dynamodb-mcp-server-python"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
@@ -181,7 +181,7 @@ resource "aws_ecs_task_definition" "dynamodb_mcp" {
 
   container_definitions = jsonencode([
     {
-      name  = "dynamodb-mcp-server"
+      name  = "dynamodb-mcp-server-python"
       image = "${aws_ecr_repository.dynamodb_mcp.repository_url}:latest"
       
       portMappings = [
@@ -212,7 +212,7 @@ resource "aws_ecs_task_definition" "dynamodb_mcp" {
 
 # ECS Service
 resource "aws_ecs_service" "dynamodb_mcp" {
-  name            = "dynamodb-mcp-server"
+  name            = "dynamodb-mcp-server-python"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.dynamodb_mcp.arn
   desired_count   = 1
