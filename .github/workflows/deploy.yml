@@ -8,7 +8,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: dynamodb-mcp-server-python
+  ECR_REPOSITORY: dynamodb-ecr-mcp-python-python
 
 jobs:
   deploy:

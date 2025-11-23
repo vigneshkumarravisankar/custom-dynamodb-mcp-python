@@ -17,12 +17,12 @@ variable "aws_region" {
 
 # VPC and Networking
 resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
+  cidr_block           = "10.1.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
   
   tags = {
-    Name = "dynamodb-mcp-vpc"
+    Name = "dynamodb-vpc-mcp-python"
   }
 }
 
@@ -30,20 +30,20 @@ resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
   
   tags = {
-    Name = "dynamodb-mcp-igw"
+    Name = "dynamodb-igw-mcp-python"
   }
 }
 
 resource "aws_subnet" "public" {
   count             = 2
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.${count.index + 1}.0/24"
+  cidr_block        = "10.1.${count.index + 1}.0/24"
   availability_zone = data.aws_availability_zones.available.names[count.index]
   
   map_public_ip_on_launch = true
   
   tags = {
-    Name = "dynamodb-mcp-subnet-${count.index + 1}"
+    Name = "dynamodb-subnet-mcp-python-${count.index + 1}"
   }
 }
 
@@ -56,7 +56,7 @@ resource "aws_route_table" "public" {
   }
   
   tags = {
-    Name = "dynamodb-mcp-rt"
+    Name = "dynamodb-rt-mcp-python"
   }
 }
 
@@ -72,7 +72,7 @@ data "aws_availability_zones" "available" {
 
 # ECR Repository
 resource "aws_ecr_repository" "dynamodb_mcp" {
-  name                 = "dynamodb-mcp-server-python"
+  name                 = "dynamodb-ecr-mcp-python"
   image_tag_mutability = "MUTABLE"
   
   image_scanning_configuration {
@@ -82,18 +82,18 @@ resource "aws_ecr_repository" "dynamodb_mcp" {
 
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
-  name = "dynamodb-mcp-cluster"
+  name = "dynamodb-cluster-mcp-python"
 }
 
 # CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "ecs_logs" {
-  name              = "/ecs/dynamodb-mcp-server-python"
+  name              = "/ecs/dynamodb-logs-mcp-python"
   retention_in_days = 7
 }
 
 # IAM Roles
 resource "aws_iam_role" "ecs_execution_role" {
-  name = "ecs-execution-role"
+  name = "dynamodb-execution-role-mcp-python"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -115,7 +115,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
 }
 
 resource "aws_iam_role" "ecs_task_role" {
-  name = "ecs-task-role1"
+  name = "dynamodb-task-role-mcp-python"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -132,7 +132,7 @@ resource "aws_iam_role" "ecs_task_role" {
 }
 
 resource "aws_iam_role_policy" "ecs_task_policy" {
-  name = "ecs-task-policy1"
+  name = "dynamodb-task-policy-mcp-python"
   role = aws_iam_role.ecs_task_role.id
 
   policy = jsonencode({
@@ -151,7 +151,7 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
 
 # Security Group for ECS tasks
 resource "aws_security_group" "ecs_tasks" {
-  name_prefix = "ecs-tasks-"
+  name_prefix = "dynamodb-sg-mcp-python-"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -171,7 +171,7 @@ resource "aws_security_group" "ecs_tasks" {
 
 # ECS Task Definition
 resource "aws_ecs_task_definition" "dynamodb_mcp" {
-  family                   = "dynamodb-mcp-server-python"
+  family                   = "dynamodb-task-mcp-python"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
@@ -181,7 +181,7 @@ resource "aws_ecs_task_definition" "dynamodb_mcp" {
 
   container_definitions = jsonencode([
     {
-      name  = "dynamodb-mcp-server-python"
+      name  = "dynamodb-container-mcp-python"
       image = "${aws_ecr_repository.dynamodb_mcp.repository_url}:latest"
       
       portMappings = [
@@ -212,7 +212,7 @@ resource "aws_ecs_task_definition" "dynamodb_mcp" {
 
 # ECS Service
 resource "aws_ecs_service" "dynamodb_mcp" {
-  name            = "dynamodb-mcp-server-python"
+  name            = "dynamodb-service-mcp-python"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.dynamodb_mcp.arn
   desired_count   = 1
